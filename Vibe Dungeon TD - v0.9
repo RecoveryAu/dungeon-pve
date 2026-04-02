@@ -1,0 +1,874 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>Vibe Dungeon TD - v0.9</title>
+    <style>
+        body {
+            background-color: #2c3e50;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            color: #eee;
+            font-family: 'Courier New', Courier, monospace;
+            user-select: none;
+        }
+        #gameWrapper {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        #headerBar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #34495e;
+            padding: 10px 20px;
+            border-radius: 6px;
+            border: 2px solid #2c3e50;
+            font-size: 18px;
+            font-weight: bold;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        .stat-box span { color: #f1c40f; text-shadow: 0 0 5px rgba(241, 196, 15, 0.5); font-size: 22px; }
+        .wave-box span { color: #e74c3c; }
+        
+        .btn-group {
+            display: flex;
+            gap: 10px;
+        }
+        .action-btn {
+            background: #7f8c8d; border: 2px solid #2c3e50; color: white; padding: 6px 15px;
+            font-size: 16px; font-weight: bold; border-radius: 4px; cursor: pointer;
+            box-shadow: 0 3px 0 #34495e; transition: all 0.1s;
+        }
+        .action-btn:active { transform: translateY(3px); box-shadow: none; }
+        
+        #pauseBtn { background: #e67e22; box-shadow: 0 3px 0 #d35400; border-color: transparent;}
+        #pauseBtn.paused { background: #c0392b; box-shadow: 0 3px 0 #922b21; }
+        
+        #shovelBtn { font-size: 18px; padding: 4px 10px; }
+        #shovelBtn.active { background: #f39c12; border-color: #f1c40f; box-shadow: 0 0 10px rgba(241, 196, 15, 0.6); }
+
+        #mainArea {
+            display: flex;
+            gap: 15px;
+        }
+        
+        #gameContainer {
+            position: relative;
+        }
+        canvas {
+            border: 6px solid #2c3e50;
+            background-color: #27ae60;
+            image-rendering: pixelated; 
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            cursor: crosshair;
+            border-radius: 4px;
+        }
+        
+        /* 右侧植物选择栏 */
+        #sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            background: #8e44ad;
+            padding: 12px;
+            border: 4px solid #732d91;
+            border-radius: 8px;
+            width: 140px;
+        }
+        .sidebar-title {
+            text-align: center;
+            font-size: 16px;
+            font-weight: bold;
+            color: #fff;
+            border-bottom: 2px solid #732d91;
+            padding-bottom: 8px;
+            margin-bottom: 5px;
+        }
+        .plant-card {
+            background: #9b59b6;
+            border: 2px solid #732d91;
+            border-radius: 6px;
+            padding: 8px;
+            text-align: center;
+            cursor: pointer;
+            transition: transform 0.2s, background 0.2s, border-color 0.2s;
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.2);
+            position: relative;
+            overflow: hidden; 
+        }
+        .plant-card:hover {
+            background: #a569bd;
+            transform: scale(1.02);
+        }
+        .plant-card.selected {
+            border-color: #f1c40f;
+            background: #f39c12;
+            color: #fff;
+            box-shadow: 0 0 15px rgba(241, 196, 15, 0.6);
+        }
+        .plant-card.disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            border-color: #444 !important;
+            filter: grayscale(80%);
+            transform: none !important;
+        }
+        .cooldown-overlay {
+            position: absolute;
+            bottom: 0; left: 0; right: 0;
+            background: rgba(0, 0, 0, 0.6);
+            height: 0%; 
+            pointer-events: none; 
+            z-index: 10;
+        }
+        .plant-name { font-weight: bold; font-size: 13px; margin-bottom: 2px; color: #fff; position: relative; z-index: 20;}
+        .plant-cost { color: #fff; font-size: 12px; font-weight: bold; background: rgba(0,0,0,0.4); border-radius: 10px; padding: 2px 0; position: relative; z-index: 20;}
+        
+        .plant-icon {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: 2px 0;
+            position: relative;
+            z-index: 20;
+        }
+        .plant-icon canvas {
+            border: none;
+            box-shadow: none;
+            background: transparent;
+        }
+        
+    </style>
+</head>
+<body>
+
+<div id="gameWrapper">
+    <div id="headerBar">
+        <div class="stat-box">☀️ 阳光: <span id="sunDisplay">50</span></div>
+        <div class="btn-group">
+            <button id="shovelBtn" class="action-btn" title="铲除植物">⛏️ 铁铲</button>
+            <button id="pauseBtn" class="action-btn">⏸️ 暂停</button>
+        </div>
+        <div class="wave-box">🧟 尸潮: 第 <span id="waveDisplay">1</span> 波 (<span id="enemiesLeftDisplay">0</span>)</div>
+    </div>
+
+    <div id="mainArea">
+        <div id="gameContainer">
+            <canvas id="gameCanvas" width="960" height="480"></canvas>
+        </div>
+        
+        <div id="sidebar">
+            <div class="sidebar-title">植物图鉴</div>
+            <div id="card-SUNFLOWER" class="plant-card selected" onclick="selectPlant('SUNFLOWER')">
+                <div class="cooldown-overlay" id="cd-SUNFLOWER"></div>
+                <div class="plant-name">向日葵</div>
+                <div class="plant-icon" id="icon-SUNFLOWER"></div>
+                <div class="plant-cost">☀️ 50</div>
+            </div>
+            <div id="card-PEASHOOTER" class="plant-card" onclick="selectPlant('PEASHOOTER')">
+                <div class="cooldown-overlay" id="cd-PEASHOOTER"></div>
+                <div class="plant-name">豌豆射手</div>
+                <div class="plant-icon" id="icon-PEASHOOTER"></div>
+                <div class="plant-cost">☀️ 100</div>
+            </div>
+            <div id="card-SNOWPEA" class="plant-card" onclick="selectPlant('SNOWPEA')">
+                <div class="cooldown-overlay" id="cd-SNOWPEA"></div>
+                <div class="plant-name">寒冰射手</div>
+                <div class="plant-icon" id="icon-SNOWPEA"></div>
+                <div class="plant-cost">☀️ 175</div>
+            </div>
+            <div id="card-CHERRY" class="plant-card" onclick="selectPlant('CHERRY')">
+                <div class="cooldown-overlay" id="cd-CHERRY"></div>
+                <div class="plant-name">樱桃炸弹</div>
+                <div class="plant-icon" id="icon-CHERRY"></div>
+                <div class="plant-cost">☀️ 150</div>
+            </div>
+            <div id="card-WALLNUT" class="plant-card" onclick="selectPlant('WALLNUT')">
+                <div class="cooldown-overlay" id="cd-WALLNUT"></div>
+                <div class="plant-name">坚果墙</div>
+                <div class="plant-icon" id="icon-WALLNUT"></div>
+                <div class="plant-cost">☀️ 50</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+/**
+ * ==========================================
+ * 艺术资产生成区 (像素图)
+ * ==========================================
+ */
+function createPixelSprite(width, height, pixelData) {
+    const spriteCanvas = document.createElement('canvas');
+    spriteCanvas.width = width;
+    spriteCanvas.height = height;
+    const spriteCtx = spriteCanvas.getContext('2d');
+    pixelData.forEach((row, y) => {
+        row.forEach((color, x) => {
+            if (color) {
+                spriteCtx.fillStyle = color;
+                spriteCtx.fillRect(x, y, 1, 1);
+            }
+        });
+    });
+    return spriteCanvas;
+}
+
+// 1. 向日葵
+const spriteSunflower = createPixelSprite(8, 8, [
+    [null, null, 'yellow', 'yellow', 'yellow', null, null, null],
+    [null, 'yellow', '#8B4513', '#8B4513', '#8B4513', 'yellow', null, null],
+    ['yellow', '#8B4513', 'black', '#8B4513', 'black', '#8B4513', 'yellow', null],
+    ['yellow', '#8B4513', '#8B4513', '#8B4513', '#8B4513', '#8B4513', 'yellow', null],
+    [null, 'yellow', '#8B4513', '#8B4513', '#8B4513', 'yellow', null, null],
+    [null, null, 'yellow', 'green', 'yellow', null, null, null],
+    [null, null, '#32CD32', 'green', '#32CD32', null, null, null],
+    [null, null, null, 'green', null, null, null, null]
+]);
+
+// 2. 豌豆射手
+const spritePeashooter = createPixelSprite(8, 8, [
+    [null, null, '#32CD32', '#32CD32', '#32CD32', null, null, null],
+    [null, '#32CD32', '#32CD32', '#32CD32', '#32CD32', '#006400', null, null],
+    [null, '#32CD32', 'white', 'black', '#32CD32', '#32CD32', '#32CD32', '#32CD32'],
+    [null, '#32CD32', '#32CD32', '#32CD32', '#32CD32', '#006400', '#32CD32', '#32CD32'],
+    [null, null, null, '#228B22', null, null, null, null],
+    [null, null, null, '#228B22', null, null, null, null],
+    [null, null, '#32CD32', '#32CD32', '#32CD32', null, null, null],
+    [null, '#32CD32', '#32CD32', '#32CD32', '#32CD32', '#32CD32', null, null]
+]);
+
+// 3. 寒冰射手 (浅蓝色)
+const spriteSnowPea = createPixelSprite(8, 8, [
+    [null, null, '#87CEFA', '#87CEFA', '#87CEFA', null, null, null],
+    [null, '#87CEFA', '#87CEFA', '#87CEFA', '#87CEFA', '#4682B4', null, null],
+    [null, '#87CEFA', 'white', 'blue', '#87CEFA', '#87CEFA', '#87CEFA', '#87CEFA'],
+    [null, '#87CEFA', '#87CEFA', '#87CEFA', '#87CEFA', '#4682B4', '#87CEFA', '#87CEFA'],
+    [null, null, null, '#4169E1', null, null, null, null],
+    [null, null, null, '#4169E1', null, null, null, null],
+    [null, null, '#87CEFA', '#87CEFA', '#87CEFA', null, null, null],
+    [null, '#87CEFA', '#87CEFA', '#87CEFA', '#87CEFA', '#87CEFA', null, null]
+]);
+
+// 4. 樱桃炸弹 (双红樱桃)
+const spriteCherry = createPixelSprite(8, 8, [
+    [null, null, null, '#006400', '#006400', null, null, null],
+    [null, null, '#228B22', null, null, '#228B22', null, null],
+    [null, '#FF0000', '#FF0000', null, null, '#FF0000', '#FF0000', null],
+    ['#FF0000', '#FF6347', '#FF0000', '#FF0000', '#FF0000', '#FF6347', '#FF0000', '#FF0000'],
+    ['#FF0000', '#FF0000', '#8B0000', '#FF0000', '#FF0000', '#FF0000', '#8B0000', '#FF0000'],
+    ['#FF0000', '#FF0000', '#FF0000', '#FF0000', '#FF0000', '#FF0000', '#FF0000', '#FF0000'],
+    [null, '#FF0000', '#FF0000', null, null, '#FF0000', '#FF0000', null],
+    [null, null, null, null, null, null, null, null]
+]);
+
+// 5. 坚果墙
+const spriteWallnut = createPixelSprite(8, 8, [
+    [null, null, '#A0522D', '#A0522D', '#A0522D', null, null, null],
+    [null, '#A0522D', '#CD853F', '#CD853F', '#CD853F', '#A0522D', null, null],
+    ['#A0522D', '#CD853F', 'black', '#CD853F', 'black', '#CD853F', '#A0522D', null],
+    ['#A0522D', '#CD853F', '#CD853F', '#CD853F', '#CD853F', '#CD853F', '#A0522D', null],
+    ['#A0522D', '#CD853F', '#CD853F', '#CD853F', '#CD853F', '#CD853F', '#A0522D', null],
+    ['#A0522D', '#CD853F', '#8B4513', '#CD853F', '#8B4513', '#CD853F', '#A0522D', null],
+    [null, '#A0522D', '#CD853F', '#CD853F', '#CD853F', '#A0522D', null, null],
+    [null, null, '#A0522D', '#A0522D', '#A0522D', null, null, null]
+]);
+
+// 6. 普通僵尸
+const spriteZombie = createPixelSprite(8, 8, [
+    [null, null, null, '#556B2F', '#556B2F', '#556B2F', null, null],
+    [null, null, '#556B2F', 'black', '#556B2F', '#556B2F', null, null],
+    [null, null, null, '#556B2F', '#556B2F', '#556B2F', null, null],
+    ['#556B2F', '#556B2F', '#8B4513', '#8B4513', '#8B4513', '#8B4513', null, null], 
+    [null, null, null, '#8B4513', '#8B4513', '#8B4513', null, null],
+    [null, null, null, '#483D8B', '#483D8B', '#483D8B', null, null],
+    [null, null, null, '#483D8B', null, '#483D8B', null, null],
+    [null, null, null, 'black', null, 'black', null, null]
+]);
+
+// 7. 铁桶僵尸
+const spriteBuckethead = createPixelSprite(8, 8, [
+    [null, null, '#A9A9A9', '#A9A9A9', '#A9A9A9', '#A9A9A9', null, null],
+    [null, '#A9A9A9', '#C0C0C0', '#C0C0C0', '#C0C0C0', '#A9A9A9', null, null],
+    [null, '#808080', '#A9A9A9', '#A9A9A9', '#A9A9A9', '#808080', null, null],
+    ['#556B2F', '#556B2F', '#8B4513', '#8B4513', '#8B4513', '#8B4513', null, null], 
+    [null, null, null, '#8B4513', '#8B4513', '#8B4513', null, null],
+    [null, null, null, '#483D8B', '#483D8B', '#483D8B', null, null],
+    [null, null, null, '#483D8B', null, '#483D8B', null, null],
+    [null, null, null, 'black', null, 'black', null, null]
+]);
+
+// 8. 暗影猎手僵尸
+const spriteRunner = createPixelSprite(8, 8, [
+    [null, null, null, '#2F4F4F', '#2F4F4F', '#2F4F4F', null, null],
+    [null, null, '#2F4F4F', 'red', '#2F4F4F', '#2F4F4F', null, null], 
+    [null, null, null, '#2F4F4F', '#2F4F4F', '#2F4F4F', null, null],
+    ['#2F4F4F', '#2F4F4F', '#556B2F', '#556B2F', '#556B2F', '#556B2F', null, null], 
+    [null, null, null, '#556B2F', '#556B2F', '#556B2F', null, null],
+    [null, null, '#8B0000', '#8B0000', '#8B0000', null, null, null], 
+    [null, null, '#8B0000', null, '#8B0000', null, null, null],
+    [null, null, 'black', null, null, 'black', null, null]
+]);
+
+/**
+ * ==========================================
+ * 核心配置与图鉴
+ * ==========================================
+ */
+const GAME_STATS = {
+    grid: { size: 60, rows: 8, cols: 16 }, 
+    initialSun: 50,
+    bulletSpeed: 5 
+};
+
+const PLANT_TYPES = {
+    'SUNFLOWER': {
+        name: '向日葵', cost: 50, maxHp: 80, 
+        sprite: spriteSunflower, cooldown: 5000, 
+        isProducer: true, sunRate: 8000 
+    },
+    'PEASHOOTER': {
+        name: '豌豆射手', cost: 100, maxHp: 100, 
+        sprite: spritePeashooter, cooldown: 5000, 
+        isShooter: true, fireRate: 1500, attackDamage: 10
+    },
+    'SNOWPEA': {
+        name: '寒冰射手', cost: 175, maxHp: 100, 
+        sprite: spriteSnowPea, cooldown: 7500, 
+        isShooter: true, fireRate: 1500, attackDamage: 10, isIce: true
+    },
+    'CHERRY': {
+        name: '樱桃炸弹', cost: 150, maxHp: 9999, // 几乎无敌
+        sprite: spriteCherry, cooldown: 30000, 
+        isExplosive: true, explodeTime: 1200, damage: 1800, radius: 1.5 // 爆炸延时和范围(1.5格相当于3x3)
+    },
+    'WALLNUT': {
+        name: '坚果墙', cost: 50, maxHp: 400, 
+        sprite: spriteWallnut, cooldown: 18000, // 坚果墙冷却非常长
+        isShooter: false, isProducer: false
+    }
+};
+
+const ZOMBIE_TYPES = {
+    'NORMAL': {
+        name: '普通僵尸', maxHp: 65, speed: 0.25, // 血量微调高，速度微调高
+        attackDamage: 5, attackRate: 1000, sprite: spriteZombie, size: 40 
+    },
+    'BUCKETHEAD': {
+        name: '铁桶僵尸', maxHp: 220, speed: 0.18, // 铁桶更硬更快
+        attackDamage: 5, attackRate: 1000, sprite: spriteBuckethead, size: 40
+    },
+    'RUNNER': {
+        name: '暗影猎手', maxHp: 45, speed: 0.6, // 猎手更快
+        attackDamage: 5, attackRate: 800, sprite: spriteRunner, size: 40
+    }
+};
+
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const uiElements = {
+    sun: document.getElementById('sunDisplay'),
+    wave: document.getElementById('waveDisplay'),
+    enemiesLeft: document.getElementById('enemiesLeftDisplay')
+};
+ctx.imageSmoothingEnabled = false;
+
+// 游戏全局状态
+let state = {
+    sun: GAME_STATS.initialSun,
+    gameOver: false,
+    isPaused: false,          
+    gameTime: 0,              
+    lastRealTime: Date.now(), 
+    selectedPlant: 'SUNFLOWER', 
+    isShovelActive: false, // 铁铲状态
+    
+    plantReadyTime: {
+        'SUNFLOWER': 0, 'PEASHOOTER': 0, 'SNOWPEA': 0, 'CHERRY': 0, 'WALLNUT': 0
+    },
+    
+    wave: 1, enemiesToSpawn: 3, spawnedCount: 0, 
+    spawnInterval: 10000, lastSpawnTime: 2000, waveDelay: 0
+};
+
+let zombies = [];
+let plants = [];
+let bullets = [];
+let floatingTexts = [];
+let explosions = []; // 樱桃爆炸特效池
+
+/**
+ * ==========================================
+ * 游戏对象类
+ * ==========================================
+ */
+function drawHpBar(x, y, width, currentHp, maxHp) {
+    if (currentHp >= maxHp) return;
+    const hpRatio = Math.max(0, currentHp / maxHp);
+    ctx.fillStyle = 'red'; ctx.fillRect(x, y - 6, width, 4);
+    ctx.fillStyle = '#00ff00'; ctx.fillRect(x, y - 6, width * hpRatio, 4);
+    ctx.strokeStyle = 'black'; ctx.strokeRect(x, y - 6, width, 4);
+}
+
+class Zombie {
+    constructor(row, typeKey = 'NORMAL') {
+        this.stats = ZOMBIE_TYPES[typeKey];
+        this.row = row;
+        this.width = this.stats.size;
+        this.height = this.stats.size;
+        
+        this.x = canvas.width; 
+        this.y = this.row * GAME_STATS.grid.size + (GAME_STATS.grid.size - this.height) / 2;
+        
+        this.hp = this.stats.maxHp;
+        this.alive = true;
+        this.lastAttack = state.gameTime;
+        this.slowUntil = 0; // 冰冻减速持续时间
+    }
+
+    update() {
+        let blockingPlant = plants.find(p => 
+            p.row === this.row && 
+            this.x < p.x + p.width && this.x + this.width > p.x
+        );
+
+        let isSlowed = state.gameTime < this.slowUntil;
+        let currentSpeed = isSlowed ? this.stats.speed * 0.5 : this.stats.speed;
+        let currentAttackRate = isSlowed ? this.stats.attackRate * 2 : this.stats.attackRate;
+
+        if (blockingPlant) {
+            if (state.gameTime - this.lastAttack > currentAttackRate) {
+                blockingPlant.hp -= this.stats.attackDamage;
+                this.lastAttack = state.gameTime;
+                blockingPlant.hurtFlash = 10; 
+            }
+        } else {
+            this.x -= currentSpeed;
+        }
+
+        if (this.x + this.width < 0) {
+            state.gameOver = true;
+        }
+    }
+
+    draw() {
+        let isSlowed = state.gameTime < this.slowUntil;
+        
+        if (isSlowed) {
+            // 冰冻蓝色滤镜效果
+            ctx.globalAlpha = 0.8;
+            ctx.drawImage(this.stats.sprite, this.x, this.y, this.width, this.height);
+            ctx.globalCompositeOperation = 'source-atop';
+            ctx.fillStyle = 'rgba(135, 206, 250, 0.4)'; // 天蓝色遮罩
+            ctx.fillRect(this.x, this.y, this.width, this.height);
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.globalAlpha = 1.0;
+        } else {
+            ctx.drawImage(this.stats.sprite, this.x, this.y, this.width, this.height);
+        }
+        drawHpBar(this.x, this.y, this.width, this.hp, this.stats.maxHp);
+    }
+}
+
+class Plant {
+    constructor(col, row, typeKey) {
+        this.stats = PLANT_TYPES[typeKey];
+        this.col = col; this.row = row;
+        this.width = GAME_STATS.grid.size - 10;
+        this.height = GAME_STATS.grid.size - 10;
+        this.x = col * GAME_STATS.grid.size + 5;
+        this.y = row * GAME_STATS.grid.size + 5;
+        
+        this.hp = this.stats.maxHp;
+        this.lastAction = state.gameTime; 
+        this.plantTime = state.gameTime; // 记录种下时间
+        this.hurtFlash = 0; 
+        this.scale = 1.0; // 动画缩放
+    }
+
+    update() {
+        if (this.stats.isShooter) {
+            let hasTarget = zombies.some(z => z.row === this.row && z.x > this.x);
+            if (hasTarget && state.gameTime - this.lastAction > this.stats.fireRate) {
+                bullets.push(new Bullet(this.x + this.width, this.y + this.height / 2 - 8, this.row, this.stats.attackDamage, this.stats.isIce));
+                this.lastAction = state.gameTime;
+            }
+        } else if (this.stats.isProducer) {
+            if (state.gameTime - this.lastAction > this.stats.sunRate) {
+                state.sun += 25;
+                uiElements.sun.innerText = state.sun;
+                floatingTexts.push({ x: this.x + 10, y: this.y, text: '+25', life: 60 });
+                this.lastAction = state.gameTime;
+            }
+        } else if (this.stats.isExplosive) {
+            // 樱桃炸弹延时起爆逻辑
+            let elapsed = state.gameTime - this.plantTime;
+            if (elapsed > this.stats.explodeTime) {
+                // 爆炸！
+                let cx = this.x + this.width / 2;
+                let cy = this.y + this.height / 2;
+                let radiusPx = this.stats.radius * GAME_STATS.grid.size;
+                
+                zombies.forEach(z => {
+                    let zx = z.x + z.width / 2;
+                    let zy = z.y + z.height / 2;
+                    if (Math.hypot(cx - zx, cy - zy) <= radiusPx) {
+                        z.hp -= this.stats.damage;
+                        if (z.hp <= 0) z.alive = false;
+                    }
+                });
+                
+                // 产生绚丽爆炸特效
+                explosions.push({x: cx, y: cy, maxRadius: radiusPx, radius: 10, life: 25});
+                this.hp = 0; // 自毁
+            } else {
+                // 准备起爆时的变大充血动画
+                this.scale = 1.0 + (elapsed / this.stats.explodeTime) * 0.4;
+            }
+        }
+
+        if (this.hurtFlash > 0) this.hurtFlash--;
+    }
+
+    draw() {
+        if (this.hurtFlash > 0) ctx.globalAlpha = 0.5;
+        
+        if (this.scale !== 1.0) {
+            // 绘制缩放动画（以自身中心缩放）
+            let cx = this.x + this.width/2;
+            let cy = this.y + this.height/2;
+            ctx.translate(cx, cy);
+            ctx.scale(this.scale, this.scale);
+            ctx.drawImage(this.stats.sprite, -this.width/2, -this.height/2, this.width, this.height);
+            ctx.scale(1/this.scale, 1/this.scale);
+            ctx.translate(-cx, -cy);
+        } else {
+            ctx.drawImage(this.stats.sprite, this.x, this.y, this.width, this.height);
+        }
+        
+        ctx.globalAlpha = 1.0;
+        if(!this.stats.isExplosive) drawHpBar(this.x, this.y, this.width, this.hp, this.stats.maxHp);
+    }
+}
+
+class Bullet {
+    constructor(x, y, row, damage, isIce = false) {
+        this.x = x; this.y = y; this.row = row; this.damage = damage; this.isIce = isIce;
+        this.size = 14; this.alive = true;
+    }
+    update() {
+        this.x += GAME_STATS.bulletSpeed; 
+        if (this.x > canvas.width) this.alive = false;
+
+        zombies.forEach(z => {
+            if (z.alive && z.row === this.row && this.x < z.x + z.width && this.x + this.size > z.x) {
+                this.alive = false;
+                z.hp -= this.damage;
+                if (this.isIce) {
+                    z.slowUntil = state.gameTime + 4000; // 减速持续 4 秒
+                }
+                if (z.hp <= 0) z.alive = false;
+            }
+        });
+    }
+    draw() {
+        ctx.fillStyle = this.isIce ? '#87CEFA' : '#2ecc71';
+        ctx.beginPath(); ctx.arc(this.x + this.size/2, this.y + this.size/2, this.size/2, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = this.isIce ? '#4682B4' : '#27ae60'; ctx.lineWidth = 2; ctx.stroke();
+    }
+}
+
+/**
+ * ==========================================
+ * 波次与交互系统
+ * ==========================================
+ */
+function manageWaves() {
+    if (state.spawnedCount < state.enemiesToSpawn) {
+        if (state.gameTime - state.lastSpawnTime > state.spawnInterval) {
+            let randomRow = Math.floor(Math.random() * GAME_STATS.grid.rows);
+            
+            let possibleZombies = ['NORMAL'];
+            if (state.wave >= 2) possibleZombies.push('NORMAL', 'RUNNER'); 
+            if (state.wave >= 4) possibleZombies.push('BUCKETHEAD', 'NORMAL', 'RUNNER');
+            if (state.wave >= 6) possibleZombies.push('BUCKETHEAD', 'BUCKETHEAD', 'RUNNER', 'RUNNER');
+            if (state.wave >= 8) possibleZombies.push('BUCKETHEAD', 'BUCKETHEAD', 'BUCKETHEAD', 'RUNNER'); // 后期大量铁桶
+            
+            let chosenType = possibleZombies[Math.floor(Math.random() * possibleZombies.length)];
+            zombies.push(new Zombie(randomRow, chosenType));
+            
+            state.spawnedCount++;
+            state.lastSpawnTime = state.gameTime;
+            
+            let left = state.enemiesToSpawn - state.spawnedCount + zombies.length;
+            uiElements.enemiesLeft.innerText = "剩余 " + left;
+        }
+    } else if (zombies.length === 0) {
+        if (state.waveDelay === 0) {
+            state.waveDelay = state.gameTime;
+        } else if (state.gameTime - state.waveDelay > 5000) {
+            state.wave++;
+            state.spawnedCount = 0;
+            
+            // 核心终极平衡性调整：让玩家在10-12波感受绝望
+            if (state.wave === 2) {
+                state.enemiesToSpawn = 6;
+                state.spawnInterval = 7000;
+            } else if (state.wave >= 3) {
+                // 波数递增：W3:15只 -> W5:48只 -> W7:157只 -> W10:918只
+                state.enemiesToSpawn = Math.floor(15 * Math.pow(1.8, state.wave - 3)); 
+                // 极速产怪：W3:4.5秒 -> W5:1.3秒 -> W8:0.2秒一只！
+                state.spawnInterval = Math.max(150, 4500 * Math.pow(0.55, state.wave - 3)); 
+            }
+            
+            state.waveDelay = 0;
+            state.lastSpawnTime = state.gameTime;
+            
+            uiElements.wave.innerText = state.wave;
+            uiElements.enemiesLeft.innerText = "剩余 " + state.enemiesToSpawn;
+        }
+    }
+}
+
+function updateCooldownsRealtime() {
+    Object.keys(PLANT_TYPES).forEach(key => {
+        let card = document.getElementById('card-' + key);
+        let overlay = document.getElementById('cd-' + key);
+        let config = PLANT_TYPES[key];
+        
+        let isCoolingDown = state.gameTime < state.plantReadyTime[key];
+        let lacksSun = state.sun < config.cost;
+
+        if (isCoolingDown) {
+            let remaining = state.plantReadyTime[key] - state.gameTime;
+            let percent = (remaining / config.cooldown) * 100;
+            overlay.style.height = percent + '%';
+        } else {
+            overlay.style.height = '0%';
+        }
+
+        if (isCoolingDown || lacksSun) {
+            card.classList.add('disabled');
+        } else {
+            card.classList.remove('disabled');
+        }
+    });
+}
+
+// 初始化微缩贴图
+Object.keys(PLANT_TYPES).forEach(key => {
+    let iconContainer = document.getElementById('icon-' + key);
+    if (iconContainer) {
+        let iconCanvas = document.createElement('canvas');
+        iconCanvas.width = 30; 
+        iconCanvas.height = 30;
+        iconCanvas.style.imageRendering = 'pixelated';
+        let iconCtx = iconCanvas.getContext('2d');
+        iconCtx.imageSmoothingEnabled = false;
+        iconCtx.drawImage(PLANT_TYPES[key].sprite, 0, 0, 30, 30);
+        iconContainer.appendChild(iconCanvas);
+    }
+});
+
+// 铁铲功能逻辑
+document.getElementById('shovelBtn').addEventListener('click', () => {
+    if (state.gameOver || state.isPaused) return;
+    state.isShovelActive = !state.isShovelActive;
+    
+    const btn = document.getElementById('shovelBtn');
+    if (state.isShovelActive) {
+        btn.classList.add('active');
+        // 将鼠标变成一个特殊的十字或原生的铲子样式提示
+        canvas.style.cursor = 'crosshair'; 
+        // 视觉上取消普通卡片的选中
+        document.querySelectorAll('.plant-card').forEach(card => card.classList.remove('selected'));
+    } else {
+        btn.classList.remove('active');
+        // 恢复选中之前的植物卡片
+        document.getElementById('card-' + state.selectedPlant).classList.add('selected');
+    }
+});
+
+window.selectPlant = function(typeKey) {
+    if (state.gameOver || state.isPaused) return; 
+    
+    // 如果正在使用铲子，自动取消铲子状态
+    if (state.isShovelActive) {
+        state.isShovelActive = false;
+        document.getElementById('shovelBtn').classList.remove('active');
+    }
+
+    state.selectedPlant = typeKey;
+    document.querySelectorAll('.plant-card').forEach(card => card.classList.remove('selected'));
+    document.getElementById('card-' + typeKey).classList.add('selected');
+};
+
+canvas.addEventListener('mousedown', (e) => {
+    if (state.gameOver || state.isPaused) return; 
+
+    const rect = canvas.getBoundingClientRect();
+    const col = Math.floor((e.clientX - rect.left) / GAME_STATS.grid.size);
+    const row = Math.floor((e.clientY - rect.top) / GAME_STATS.grid.size);
+
+    // 铲除逻辑
+    if (state.isShovelActive) {
+        let pIndex = plants.findIndex(p => p.col === col && p.row === row);
+        if (pIndex !== -1) {
+            plants.splice(pIndex, 1);
+            // 铲完后自动恢复种树状态
+            state.isShovelActive = false;
+            document.getElementById('shovelBtn').classList.remove('active');
+            document.getElementById('card-' + state.selectedPlant).classList.add('selected');
+        }
+        return;
+    }
+
+    // 种植逻辑
+    const isOccupied = plants.some(p => p.col === col && p.row === row);
+    const config = PLANT_TYPES[state.selectedPlant];
+    const isReady = state.gameTime >= state.plantReadyTime[state.selectedPlant];
+
+    if (!isOccupied && state.sun >= config.cost && isReady) {
+        state.sun -= config.cost;
+        uiElements.sun.innerText = state.sun;
+        
+        state.plantReadyTime[state.selectedPlant] = state.gameTime + config.cooldown;
+        plants.push(new Plant(col, row, state.selectedPlant));
+    }
+});
+
+/**
+ * ==========================================
+ * 主循环与环境渲染
+ * ==========================================
+ */
+function drawLawn() {
+    for (let r = 0; r < GAME_STATS.grid.rows; r++) {
+        for (let c = 0; c < GAME_STATS.grid.cols; c++) {
+            ctx.fillStyle = (c + r) % 2 === 0 ? '#2a4d3e' : '#234033';
+            ctx.fillRect(c * GAME_STATS.grid.size, r * GAME_STATS.grid.size, GAME_STATS.grid.size, GAME_STATS.grid.size);
+        }
+    }
+    
+    ctx.strokeStyle = '#1e3329';
+    ctx.lineWidth = 1;
+    for (let r = 0; r <= GAME_STATS.grid.rows; r++) {
+        ctx.beginPath(); ctx.moveTo(0, r * GAME_STATS.grid.size); ctx.lineTo(canvas.width, r * GAME_STATS.grid.size); ctx.stroke();
+    }
+    for (let c = 0; c <= GAME_STATS.grid.cols; c++) {
+        ctx.beginPath(); ctx.moveTo(c * GAME_STATS.grid.size, 0); ctx.lineTo(c * GAME_STATS.grid.size, canvas.height); ctx.stroke();
+    }
+
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(0, 0, 10, canvas.height);
+}
+
+document.getElementById('pauseBtn').addEventListener('click', () => {
+    if (state.gameOver) return;
+    state.isPaused = !state.isPaused;
+    const btn = document.getElementById('pauseBtn');
+    if (state.isPaused) {
+        btn.innerText = '▶️ 继续';
+        btn.classList.add('paused');
+    } else {
+        btn.innerText = '⏸️ 暂停';
+        btn.classList.remove('paused');
+        state.lastRealTime = Date.now(); 
+    }
+});
+
+function gameLoop() {
+    let now = Date.now();
+    let dt = now - state.lastRealTime;
+    state.lastRealTime = now;
+    
+    if (!state.isPaused && !state.gameOver) {
+        state.gameTime += dt;
+    }
+
+    updateCooldownsRealtime();
+
+    if (state.gameOver) {
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.8)'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#e74c3c'; ctx.font = 'bold 40px Courier New'; ctx.textAlign = 'center';
+        ctx.fillText('地下城防线彻底崩溃...', canvas.width/2, canvas.height/2);
+        ctx.fillStyle = '#fff'; ctx.font = 'bold 24px Courier New'; 
+        ctx.fillText(`你坚持到了 尸潮第 ${state.wave} 波`, canvas.width/2, canvas.height/2 + 40);
+        return;
+    }
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    drawLawn();
+    
+    if (state.isPaused) {
+        plants.forEach(p => p.draw());
+        bullets.forEach(b => b.draw());
+        zombies.forEach(z => z.draw());
+        
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#fff'; ctx.font = 'bold 40px Courier New'; ctx.textAlign = 'center';
+        ctx.fillText('游 戏 暂 停', canvas.width/2, canvas.height/2);
+        requestAnimationFrame(gameLoop);
+        return;
+    }
+
+    manageWaves();
+
+    plants = plants.filter(p => p.hp > 0);
+    zombies = zombies.filter(z => z.hp > 0 && z.alive);
+    bullets = bullets.filter(b => b.alive);
+
+    plants.forEach(p => { p.update(); p.draw(); });
+    bullets.forEach(b => { b.update(); b.draw(); });
+    zombies.forEach(z => { z.update(); z.draw(); });
+
+    // 绘制樱桃炸弹震撼特效
+    explosions = explosions.filter(ex => ex.life > 0);
+    explosions.forEach(ex => {
+        // 圆形膨胀并伴随不透明度降低
+        ctx.fillStyle = `rgba(255, 69, 0, ${ex.life / 25})`; 
+        ctx.beginPath();
+        ctx.arc(ex.x, ex.y, ex.radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = `rgba(255, 255, 0, ${ex.life / 25})`;
+        ctx.lineWidth = 4;
+        ctx.stroke();
+        ex.radius += (ex.maxRadius - ex.radius) * 0.25; 
+        ex.life--;
+    });
+
+    let enemiesLeft = state.enemiesToSpawn - state.spawnedCount + zombies.length;
+    uiElements.enemiesLeft.innerText = "剩余 " + enemiesLeft;
+
+    ctx.font = 'bold 20px Arial';
+    floatingTexts = floatingTexts.filter(ft => ft.life > 0);
+    floatingTexts.forEach(ft => {
+        ctx.fillStyle = `rgba(241, 196, 15, ${ft.life / 60})`; 
+        ctx.fillText(ft.text, ft.x, ft.y);
+        ft.y -= 0.5; 
+        ft.life--;
+    });
+
+    if (state.waveDelay > 0) {
+        ctx.fillStyle = 'rgba(255, 0, 0, 0.8)'; ctx.font = 'bold 30px Courier New'; ctx.textAlign = 'center';
+        ctx.fillText(`大规模尸潮即将来袭... (第 ${state.wave + 1} 波)`, canvas.width/2, canvas.height/2);
+    }
+
+    requestAnimationFrame(gameLoop);
+}
+
+uiElements.sun.innerText = state.sun;
+uiElements.wave.innerText = state.wave;
+uiElements.enemiesLeft.innerText = "剩余 " + state.enemiesToSpawn;
+gameLoop();
+
+</script>
+</body>
+</html>
